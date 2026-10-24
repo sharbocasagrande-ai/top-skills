@@ -1,0 +1,53 @@
+name: Sincronizar skills do Rafael
+
+on:
+  schedule:
+    # Todos os dias, aproximadamente as 04:17 de Sao Paulo (07:17 UTC).
+    - cron: '17 7 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/sync-upstream.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'sharbocasagrande-ai/top-skills'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Sincronizar main com rafaelnasch/top-skills
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          parent="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.parent.full_name')"
+          if [[ "$parent" != 'rafaelnasch/top-skills' ]]; then
+            echo '::error::O repositorio de origem mudou. Revise a configuracao antes de sincronizar.'
+            exit 1
+          fi
+
+          # A API faz merge e preserva o historico. Conflitos causam falha;
+          # nenhuma atualizacao forcada ou substituicao de branch e usada.
+          if ! result="$(gh api --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            "repos/$GITHUB_REPOSITORY/merge-upstream" \
+            -f branch=main --jq '.message')"; then
+            echo '::error::Sincronizacao interrompida. Verifique os detalhes acima; conflitos ou restricoes de acesso exigem revisao.'
+            exit 1
+          fi
+
+          printf '%s\n' "$result"
+          {
+            printf 'Origem: https://github.com/rafaelnasch/top-skills\n\n'
+            printf 'Destino: https://github.com/sharbocasagrande-ai/top-skills/tree/main\n\n'
+            printf '%s\n' "$result"
+          } >> "$GITHUB_STEP_SUMMARY"
